@@ -1,0 +1,104 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 224 71% 4%; /* Deep Navy Blue */
+    --foreground: 210 40% 98%; /* Almost White */
+
+    --card: 224 60% 9%; /* Slightly Lighter Navy for cards */
+    --card-foreground: 210 40% 98%;
+
+    --popover: 224 71% 4%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 340 82% 61%; /* Vibrant Pink */
+    --primary-foreground: 0 0% 100%; /* White */
+
+    --secondary: 280 70% 55%; /* Bright Purple */
+    --secondary-foreground: 0 0% 100%; /* White */
+
+    --muted: 224 30% 20%; /* Muted Navy */
+    --muted-foreground: 210 30% 70%; /* Lighter Muted Text */
+
+    --accent: 190 80% 55%; /* Bright Cyan/Turquoise */
+    --accent-foreground: 224 71% 4%; /* Dark for contrast on accent */
+
+    --destructive: 0 72% 51%; /* Bright Red */
+    --destructive-foreground: 0 0% 100%; /* White */
+
+    --border: 224 40% 15%; /* Navy Border */
+    --input: 224 40% 15%; /* Navy Input Background */
+    --ring: 340 82% 61%; /* Pink for focus rings */
+
+    --radius: 0.8rem; /* Slightly more rounded corners */
+  }
+
+  .dark {
+    --background: 224 71% 4%;
+    --foreground: 210 40% 98%;
+    --card: 224 60% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 224 71% 4%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 340 82% 61%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 280 70% 55%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 224 30% 20%;
+    --muted-foreground: 210 30% 70%;
+    --accent: 190 80% 55%;
+    --accent-foreground: 224 71% 4%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 224 40% 15%;
+    --input: 224 40% 15%;
+    --ring: 340 82% 61%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply font-sans;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-bold;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--muted));
+  border-radius: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--primary) / 0.6);
+  border-radius: 10px;
+  border: 2px solid hsl(var(--muted));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary));
+}
+
+/* Glassmorphism effect for cards */
+.glassmorphic-card {
+  background: hsla(var(--card-hsl, 224 60% 9%) / 0.5); /* Use HSL for alpha */
+  backdrop-filter: blur(10px) saturate(180%);
+  -webkit-backdrop-filter: blur(10px) saturate(180%);
+  border: 1px solid hsla(var(--border-hsl, 224 40% 15%) / 0.3);
+}
+
+/* Youthful font - ensure you load this font in index.html or via CSS import */
+body {
+  font-family: 'Poppins', sans-serif; /* Example of a more youthful font */
+}
