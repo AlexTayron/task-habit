@@ -212,8 +212,8 @@ export const deleteTask = async (uid, taskId) => {
 export const addHabit = async (uid, habitData) => {
   try {
     // Validação básica
-    if (!habitData.nome || !habitData.meta_total || !habitData.tipo_meta) {
-       return { habitId: null, error: "Nome, meta total e tipo de meta são obrigatórios." };
+    if (!habitData.título || !habitData.meta_total || !habitData.tipo_de_meta) {
+       return { habitId: null, error: "Título, meta total e tipo de meta são obrigatórios." };
     }
     const habitsCollectionRef = collection(getUserDocRef(uid), 'habits');
     const newHabit = {

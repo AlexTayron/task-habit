@@ -575,27 +575,45 @@ export const AppProvider = ({ children }) => {
   
   // --- Funções de Hábitos com integração Google Calendar ---
   const addHabit = async (habitData) => {
-    if (!user) return null;
+    if (!user) {
+      console.error('Tentativa de adicionar hábito sem usuário autenticado');
+      return null;
+    }
     console.log('AppContext addHabit: Dados recebidos:', habitData); // Log
 
+    // Validação dos dados do hábito
+    if (!habitData.título || !habitData.tipo_de_meta || !habitData.meta_total || !habitData.frequencia) {
+      console.error('Dados inválidos para addHabit:', {
+        título: !!habitData.título,
+        tipo_de_meta: !!habitData.tipo_de_meta,
+        meta_total: !!habitData.meta_total,
+        frequencia: !!habitData.frequencia
+      });
+      showToast("Erro", "Todos os campos são obrigatórios para criar um hábito.", "destructive");
+      return null;
+    }
+
     const newHabit = { 
-      // id: `habit-${Date.now()}`, // O ID será gerado pelo Firestore
       ...habitData, 
       progresso_atual: 0, 
-      sincronizado_google: false, // Pode usar este flag para indicar sincronização
-      googleCalendarEventId: null, // Campo para armazenar o ID do evento do Calendar
+      sincronizado_google: false,
+      googleCalendarEventId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
     try {
+      console.log('Tentando adicionar hábito no Firestore:', newHabit);
       // 1. Salvar hábito no Firestore
       const { habitId, error: firebaseError } = await firebaseAddHabit(user.uid, newHabit);
       
       if (firebaseError) {
+        console.error('Erro ao criar hábito no Firestore:', firebaseError);
         showToast("Erro ao criar hábito", firebaseError, "destructive");
         return null;
       }
       
-      console.log('Hábito adicionado no Firestore com ID:', habitId); // Log
+      console.log('Hábito adicionado no Firestore com ID:', habitId);
       const habitWithId = { ...newHabit, id: habitId };
 
       let googleCalendarEventId = null;
@@ -604,38 +622,43 @@ export const AppProvider = ({ children }) => {
       // 2. Tentar criar evento no Google Calendar se o cliente estiver conectado
       if (googleCalendarInitialized && googleCalendarSignedIn) {
          console.log('Tentando criar evento no Google Calendar para hábito:', habitWithId);
-         // TODO: Mapear dados do Hábito para o formato de Evento do Google Calendar.
-         // Hábitos podem ser eventos recorrentes. Isso exigirá uma lógica de mapeamento mais complexa.
-         // Exemplo básico (tratando como evento único): 
          const event = {
-            summary: habitWithId.nome, // Assumindo que 'nome' é o título do hábito
-            description: `Meta: ${habitWithId.meta_total} ${habitWithId.tipo_meta}`, // Exemplo de descrição
-            start: { dateTime: new Date().toISOString(), timeZone: 'America/Sao_Paulo' }, // Data/hora de início do hábito?
-            end: { dateTime: new Date(new Date().getTime() + 60 * 60000).toISOString(), timeZone: 'America/Sao_Paulo' }, // Data/hora de fim?
-            // Para hábitos recorrentes, use a propriedade 'recurrence'. Ver documentação da API.
+            summary: habitWithId.título,
+            description: `Meta: ${habitWithId.meta_total} ${habitWithId.tipo_de_meta}`,
+            start: { 
+              dateTime: new Date().toISOString(), 
+              timeZone: 'America/Sao_Paulo' 
+            },
+            end: { 
+              dateTime: new Date(new Date().getTime() + 60 * 60000).toISOString(), 
+              timeZone: 'America/Sao_Paulo' 
+            },
+            recurrence: habitWithId.frequencia === 'diário' ? ['RRULE:FREQ=DAILY'] : 
+                       habitWithId.frequencia === 'semanal' ? ['RRULE:FREQ=WEEKLY'] :
+                       habitWithId.frequencia === 'mensal' ? ['RRULE:FREQ=MONTHLY'] : undefined
          };
 
          try {
+            console.log('Criando evento no Google Calendar:', event);
             const response = await gapi.client.calendar.events.insert({
               calendarId: 'primary',
               resource: event,
             });
             console.log('Evento criado no Google Calendar para hábito:', response.result);
             googleCalendarEventId = response.result.id;
-             // Opcional: Salvar o ID do evento do Google Calendar no hábito no Firestore
-             try {
+            
+            try {
                 await firebaseUpdateHabit(user.uid, habitId, { googleCalendarEventId: googleCalendarEventId });
                 console.log('googleCalendarEventId salvo no Firestore para hábito:', habitId);
-                 // Atualizar o estado local do hábito com o eventId
-                 setHabits(prevHabits =>
-                   prevHabits.map(habit =>
-                     habit.id === habitId ? { ...habit, googleCalendarEventId: googleCalendarEventId } : habit
-                   )
-                 );
-             } catch (updateError) {
+                setHabits(prevHabits =>
+                  prevHabits.map(habit =>
+                    habit.id === habitId ? { ...habit, googleCalendarEventId: googleCalendarEventId } : habit
+                  )
+                );
+            } catch (updateError) {
                 console.error('Erro ao salvar googleCalendarEventId no Firestore para hábito:', updateError);
                 showToast("Aviso", "Hábito criado e sincronizado com o Calendar, mas falhou ao salvar a referência.", "warning");
-             }
+            }
          } catch (calendarError) {
             console.error('Erro ao criar evento no Google Calendar para hábito:', calendarError);
             googleCalendarError = calendarError;
@@ -647,22 +670,20 @@ export const AppProvider = ({ children }) => {
          console.log('Cliente Google Calendar não inicializado. Evento de hábito não criado.');
       }
 
-       // Atualizar estado local (seja com ou sem sincronização bem-sucedida do calendar)
-       // Se o eventId foi salvo no Firestore, o estado já foi atualizado acima. Se não, adiciona o hábito sem ele.
-       if (!googleCalendarEventId) { // Evita duplicar se o eventId já foi salvo e o estado atualizado
-         setHabits(prevHabits => [...prevHabits, habitWithId]);
-       }
+      // Atualizar estado local
+      if (!googleCalendarEventId) {
+        console.log('Atualizando estado local com novo hábito:', habitWithId);
+        setHabits(prevHabits => [...prevHabits, habitWithId]);
+      }
 
       if (!googleCalendarError) {
          showToast("🎯 Novo Hábito!", "Hábito adicionado com sucesso." + (googleCalendarEventId ? " Sincronizado com Google Calendar." : ""));
-      } else {
-         // O aviso de falha na sincronização já foi mostrado acima.
       }
 
       return habitWithId;
     } catch (error) {
-      console.error('AppContext addHabit: Erro inesperado:', error);
-      showToast("Erro", "Não foi possível criar o hábito.", "destructive");
+      console.error('Erro inesperado em addHabit:', error);
+      showToast("Erro", "Não foi possível criar o hábito. Por favor, tente novamente.", "destructive");
       return null;
     }
   };
