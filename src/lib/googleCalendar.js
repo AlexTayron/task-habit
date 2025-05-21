@@ -10,20 +10,54 @@ const TARGET_CALENDAR_ID = '32rvqhjnfrck2rfou52hdv92avkv5pm3@import.calendar.goo
 
 export const initGoogleClient = () => {
   return new Promise((resolve, reject) => {
-    gapi.load('client:auth2', () => {
-      gapi.client.init({
-        apiKey: API_KEY,
-        clientId: CLIENT_ID,
-        discoveryDocs: DISCOVERY_DOCS,
-        scope: SCOPES,
-      }).then(() => {
-        resolve(gapi);
-      }).catch(reject);
-    });
+    try {
+      console.log('Iniciando carregamento do cliente Google...');
+      gapi.load('client:auth2', () => {
+        console.log('Cliente Google carregado, inicializando...');
+        gapi.client.init({
+          apiKey: API_KEY,
+          clientId: CLIENT_ID,
+          discoveryDocs: DISCOVERY_DOCS,
+          scope: SCOPES,
+        }).then(() => {
+          console.log('Cliente Google inicializado com sucesso');
+          // Verificar se a autenticação está disponível
+          if (gapi.auth2) {
+            console.log('Auth2 disponível');
+            resolve(gapi);
+          } else {
+            console.error('Auth2 não está disponível após inicialização');
+            reject(new Error('Auth2 não está disponível'));
+          }
+        }).catch(error => {
+          console.error('Erro na inicialização do cliente Google:', error);
+          reject(error);
+        });
+      });
+    } catch (error) {
+      console.error('Erro ao carregar cliente Google:', error);
+      reject(error);
+    }
   });
 };
 
-export const signInWithGoogle = () => gapi.auth2.getAuthInstance().signIn();
+export const signInWithGoogle = async () => {
+  try {
+    console.log('Iniciando processo de login com Google...');
+    const auth2 = gapi.auth2.getAuthInstance();
+    if (!auth2) {
+      throw new Error('Auth2 não está disponível');
+    }
+    console.log('Auth2 disponível, tentando login...');
+    const result = await auth2.signIn();
+    console.log('Login realizado com sucesso:', result);
+    return result;
+  } catch (error) {
+    console.error('Erro detalhado ao tentar login com Google:', error);
+    throw error;
+  }
+};
+
 export const signOutFromGoogle = () => gapi.auth2.getAuthInstance().signOut(); // Adicionar função de signOut
 export const getIsSignedIn = () => gapi.auth2.getAuthInstance().isSignedIn.get();
 export const getCurrentUser = () => gapi.auth2.getAuthInstance().currentUser.get();

@@ -252,10 +252,34 @@ export const AppProvider = ({ children }) => {
     }
     try {
       console.log('Tentando login com Google Calendar...');
-      await googleSignIn();
+      const result = await googleSignIn();
+      console.log('Resultado do login:', result);
+      
+      // Verificar se o login foi bem sucedido
+      if (result && result.getAuthResponse()) {
+        const authResponse = result.getAuthResponse();
+        console.log('Auth Response:', {
+          access_token: authResponse.access_token ? 'Presente' : 'Ausente',
+          id_token: authResponse.id_token ? 'Presente' : 'Ausente',
+          scope: authResponse.scope,
+          expires_in: authResponse.expires_in,
+          first_issued_at: authResponse.first_issued_at,
+          expires_at: authResponse.expires_at
+        });
+      }
     } catch (error) {
-      console.error('Erro ao tentar login com Google Calendar:', error);
-      showToast("Erro", "Não foi possível conectar ao Google Calendar. Verifique seu bloqueador de pop-ups ou console para detalhes.", "destructive");
+      console.error('Erro detalhado ao tentar login com Google Calendar:', error);
+      let errorMessage = "Não foi possível conectar ao Google Calendar.";
+      
+      if (error.error === 'popup_closed_by_user') {
+        errorMessage = "A janela de login foi fechada. Por favor, tente novamente.";
+      } else if (error.error === 'access_denied') {
+        errorMessage = "Acesso negado. Por favor, verifique as permissões necessárias.";
+      } else if (error.error === 'immediate_failed') {
+        errorMessage = "Falha na autenticação imediata. Por favor, tente novamente.";
+      }
+      
+      showToast("Erro", errorMessage, "destructive");
     }
   };
 
