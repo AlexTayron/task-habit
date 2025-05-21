@@ -22,7 +22,7 @@ const googleProvider = new GoogleAuthProvider();
 const usersCollection = collection(db, 'users');
 
 // Função auxiliar para obter a referência do documento do usuário
-const getUserDocRef = (uid) => doc(usersCollection, uid);
+export const getUserDocRef = (uid) => doc(usersCollection, uid);
 
 // Função para salvar dados adicionais do usuário no Firestore
 export const saveUserData = async (uid, data) => {
