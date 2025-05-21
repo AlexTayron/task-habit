@@ -18,9 +18,10 @@ import {
   firebaseUpdateTodo,
   firebaseDeleteTodo,
   db,
-  saveUserData
+  saveUserData,
+  getUserDocRef
 } from '@/lib/firebase';
-
+import { collection, getDocs } from 'firebase/firestore';
 import { 
   initGoogleClient, 
   signInWithGoogle as googleSignIn, // Renomear para evitar conflito com a função de login do firebase
@@ -102,147 +103,161 @@ export const AppProvider = ({ children }) => {
 
   // Efeito para carregar dados do usuário E AGORA IMPORTAR EVENTOS DO GOOGLE CALENDAR QUANDO AUTENTICADO
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => { // Adicionar async aqui
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       setIsAuthenticated(!!user);
       setUser(user);
       
       if (user) {
-        const userData = await getUserData(user.uid);
-        if (userData) {
-          // Garantir que tasks, boards, habits, habitSessions e todos
-          // são carregados da subcoleção, mesmo que o documento raiz tenha um array vazio ou desatualizado
-          const loadedTasks = userData.tasks || [];
-          const loadedHabits = userData.habits || [];
-          const loadedTodos = userData.todos || [];
+        try {
+          // Carregar dados do usuário
+          const userData = await getUserData(user.uid);
+          
+          // Carregar subcoleções
+          const tasksCollectionRef = collection(getUserDocRef(user.uid), 'tasks');
+          const habitsCollectionRef = collection(getUserDocRef(user.uid), 'habits');
+          const habitSessionsCollectionRef = collection(getUserDocRef(user.uid), 'habitSessions');
+          const todosCollectionRef = collection(getUserDocRef(user.uid), 'todos');
 
+          // Buscar dados das subcoleções
+          const [tasksSnapshot, habitsSnapshot, habitSessionsSnapshot, todosSnapshot] = await Promise.all([
+            getDocs(tasksCollectionRef),
+            getDocs(habitsCollectionRef),
+            getDocs(habitSessionsCollectionRef),
+            getDocs(todosCollectionRef)
+          ]);
+
+          // Mapear os documentos para objetos com IDs
+          const loadedTasks = tasksSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const loadedHabits = habitsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const loadedHabitSessions = habitSessionsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          const loadedTodos = todosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+          console.log('Dados carregados do Firestore:', {
+            tasks: loadedTasks.length,
+            habits: loadedHabits.length,
+            habitSessions: loadedHabitSessions.length,
+            todos: loadedTodos.length
+          });
+
+          // Atualizar estados
           setTasks(loadedTasks);
-          setBoards(userData.boards || []);
           setHabits(loadedHabits);
-          setHabitSessions(userData.habitSessions || []);
+          setHabitSessions(loadedHabitSessions);
           setTodos(loadedTodos);
+          setBoards(userData.boards || []);
           setUserName(userData.name || null);
 
-          // *** NOVA LÓGICA: Buscar e importar eventos do Google Calendar se conectado ***
-          if (googleCalendarInitialized && googleCalendarSignedIn) { // Verificar se Calendar está pronto e conectado
-             console.log('Usuário Firebase autenticado e Google Calendar conectado. Buscando eventos do Calendar...');
-             // Exemplo: Buscar eventos da próxima semana (ajuste o intervalo conforme necessário)
-             const now = new Date();
-             const nextWeek = new Date();
-             nextWeek.setDate(now.getDate() + 7);
+          // Continuar com a lógica do Google Calendar...
+          if (googleCalendarInitialized && googleCalendarSignedIn) {
+            console.log('Usuário Firebase autenticado e Google Calendar conectado. Buscando eventos do Calendar...');
+            // Exemplo: Buscar eventos da próxima semana (ajuste o intervalo conforme necessário)
+            const now = new Date();
+            const nextWeek = new Date();
+            nextWeek.setDate(now.getDate() + 7);
 
-             const { events, error } = await fetchCalendarEvents(now, nextWeek); // user.uid AGORA está disponível se user não for null
+            const { events, error } = await fetchCalendarEvents(now, nextWeek); // user.uid AGORA está disponível se user não for null
 
-             if (error) {
-               console.error('Erro ao buscar eventos do Google Calendar após autenticação Firebase:', error);
-               showToast("Aviso", "Conectado ao Calendar, mas falhou ao carregar eventos existentes.", "warning");
-             } else if (events && events.length > 0) {
-                console.log('Eventos do Google Calendar carregados:', events);
-                // TODO: Mapear eventos do Calendar para Tarefas/Hábitos/To-Dos e adicioná-los ao estado/Firestore
-                // *** Lógica de Mapeamento e Adição (Reutilizada) ***
+            if (error) {
+              console.error('Erro ao buscar eventos do Google Calendar após autenticação Firebase:', error);
+              showToast("Aviso", "Conectado ao Calendar, mas falhou ao carregar eventos existentes.", "warning");
+            } else if (events && events.length > 0) {
+               console.log('Eventos do Google Calendar carregados:', events);
+               // TODO: Mapear eventos do Calendar para Tarefas/Hábitos/To-Dos e adicioná-los ao estado/Firestore
+               // *** Lógica de Mapeamento e Adição (Reutilizada) ***
 
-                const newItemsFromCalendar = events.map(event => {
-                   // Exemplo de mapeamento básico para Tarefas
-                   // Ajuste isso para lidar com Hábitos e To-Dos também
-                   return {
-                      título: event.summary,
-                      descrição: event.description || '',
-                      status: "A Fazer", // Status padrão para itens importados
-                      createdAt: new Date().toISOString(),
-                      updatedAt: new Date().toISOString(),
-                      userId: user.uid, // Associe ao usuário logado
-                      data_inicial: event.start?.dateTime || event.start?.date ? new Date(event.start?.dateTime || event.start?.date).toISOString() : null,
-                      data_final: event.end?.dateTime || event.end?.date ? new Date(event.end?.dateTime || event.end?.date).toISOString() : null,
-                      isFromGoogleCalendar: true, // Flag para identificar origem
-                      googleCalendarEventId: event.id, // Salvar ID para futura sincronização bidirecional
-                   };
-                }).filter(item => {
-                    // TODO: Lógica mais robusta para verificar se o item já existe no Firestore
-                    // Por enquanto, verifica no estado local carregado (loadedTasks, etc.)
-                    const exists = loadedTasks.some(task => task.googleCalendarEventId === item.googleCalendarEventId) ||
-                                   loadedHabits.some(habit => habit.googleCalendarEventId === item.googleCalendarEventId) ||
-                                   loadedTodos.some(todo => todo.googleCalendarEventId === item.googleCalendarEventId);
-                    return !exists; // Adicionar apenas se não existir
-                });
+               const newItemsFromCalendar = events.map(event => {
+                  // Exemplo de mapeamento básico para Tarefas
+                  // Ajuste isso para lidar com Hábitos e To-Dos também
+                  return {
+                     título: event.summary,
+                     descrição: event.description || '',
+                     status: "A Fazer", // Status padrão para itens importados
+                     createdAt: new Date().toISOString(),
+                     updatedAt: new Date().toISOString(),
+                     userId: user.uid, // Associe ao usuário logado
+                     data_inicial: event.start?.dateTime || event.start?.date ? new Date(event.start?.dateTime || event.start?.date).toISOString() : null,
+                     data_final: event.end?.dateTime || event.end?.date ? new Date(event.end?.dateTime || event.end?.date).toISOString() : null,
+                     isFromGoogleCalendar: true, // Flag para identificar origem
+                     googleCalendarEventId: event.id, // Salvar ID para futura sincronização bidirecional
+                  };
+               }).filter(item => {
+                   // TODO: Lógica mais robusta para verificar se o item já existe no Firestore
+                   // Por enquanto, verifica no estado local carregado (loadedTasks, etc.)
+                   const exists = loadedTasks.some(task => task.googleCalendarEventId === item.googleCalendarEventId) ||
+                                  loadedHabits.some(habit => habit.googleCalendarEventId === item.googleCalendarEventId) ||
+                                  loadedTodos.some(todo => todo.googleCalendarEventId === item.googleCalendarEventId);
+                   return !exists; // Adicionar apenas se não existir
+               });
 
-                console.log('Itens mapeados e filtrados do Calendar:', newItemsFromCalendar);
+               console.log('Itens mapeados e filtrados do Calendar:', newItemsFromCalendar);
 
-                // Adicionar os novos itens ao estado local (Tarefas) e potencialmente salvar no Firestore
-                if (newItemsFromCalendar.length > 0) {
-                   // Adicionar ao estado local das Tarefas (ou Hábitos/To-Dos dependendo do mapeamento)
-                   // Usar functional update para garantir que estamos trabalhando com o estado mais recente
-                   setTasks(prevTasks => [...prevTasks, ...newItemsFromCalendar]);
+               // Adicionar os novos itens ao estado local (Tarefas) e potencialmente salvar no Firestore
+               if (newItemsFromCalendar.length > 0) {
+                  // Adicionar ao estado local das Tarefas (ou Hábitos/To-Dos dependendo do mapeamento)
+                  // Usar functional update para garantir que estamos trabalhando com o estado mais recente
+                  setTasks(prevTasks => [...prevTasks, ...newItemsFromCalendar]);
 
-                   // TODO: Salvar newItemsFromCalendar no Firestore em lote para eficiência
-                   // Percorrer newItemsFromCalendar e chamar firebaseAddTask (ou firebaseAddHabit/firebaseAddTodo) para cada um
-                   // Certifique-se de que as funções firebaseAdd... lidam com o googleCalendarEventId já presente.
-                    newItemsFromCalendar.forEach(async (item) => {
-                       // Exemplo: adicionar como tarefa. Ajuste conforme seu mapeamento.
-                       // Precisa garantir que firebaseAddTask use o ID do item retornado do Calendar
-                        try {
-                           // Nota: firebaseAddTask gera um novo ID. Se quiser usar o ID do evento do Calendar como ID do documento,
-                           // precisará ajustar a função firebaseAddTask ou usar setDoc com o ID especificado.
-                           // Para simplificar por agora, vamos adicionar como novas tarefas e salvar o googleCalendarEventId nelas.
-                            // Passando explicitamente user.uid que AGORA sabemos que não é null
-                            const { taskId, error: addError } = await firebaseAddTask(user.uid, item); // Isso criará um novo ID no Firestore
-                            if (addError) {
-                               console.error('Erro ao salvar item do Calendar no Firestore:', item, addError);
-                            }
-                        } catch (e) {
-                           console.error('Erro inesperado ao salvar item do Calendar no Firestore:', item, e);
-                        }
-                    });
+                  // TODO: Salvar newItemsFromCalendar no Firestore em lote para eficiência
+                  // Percorrer newItemsFromCalendar e chamar firebaseAddTask (ou firebaseAddHabit/firebaseAddTodo) para cada um
+                  // Certifique-se de que as funções firebaseAdd... lidam com o googleCalendarEventId já presente.
+                   newItemsFromCalendar.forEach(async (item) => {
+                      // Exemplo: adicionar como tarefa. Ajuste conforme seu mapeamento.
+                      // Precisa garantir que firebaseAddTask use o ID do item retornado do Calendar
+                       try {
+                          // Nota: firebaseAddTask gera um novo ID. Se quiser usar o ID do evento do Calendar como ID do documento,
+                          // precisará ajustar a função firebaseAddTask ou usar setDoc com o ID especificado.
+                          // Para simplificar por agora, vamos adicionar como novas tarefas e salvar o googleCalendarEventId nelas.
+                           // Passando explicitamente user.uid que AGORA sabemos que não é null
+                           const { taskId, error: addError } = await firebaseAddTask(user.uid, item); // Isso criará um novo ID no Firestore
+                           if (addError) {
+                              console.error('Erro ao salvar item do Calendar no Firestore:', item, addError);
+                           }
+                       } catch (e) {
+                          console.error('Erro inesperado ao salvar item do Calendar no Firestore:', item, e);
+                       }
+                   });
 
-                   showToast("Sucesso!", `${newItemsFromCalendar.length} eventos do Calendar importados como tarefas.`);
-                } else {
-                    console.log('Nenhum novo evento do Calendar para importar.');
-                }
+                  showToast("Sucesso!", `${newItemsFromCalendar.length} eventos do Calendar importados como tarefas.`);
+               } else {
+                   console.log('Nenhum novo evento do Calendar para importar.');
+               }
 
-             } else if (events && events.length === 0) {
-                console.log('Nenhum evento encontrado no Google Calendar no período especificado.');
-                //showToast("Informação", "Nenhum evento recente encontrado no seu Google Calendar."); // Talvez muito verboso
-             }
+            } else if (events && events.length === 0) {
+               console.log('Nenhum evento encontrado no Google Calendar no período especificado.');
+               //showToast("Informação", "Nenhum evento recente encontrado no seu Google Calendar."); // Talvez muito verboso
+            }
           } else if (user && !googleCalendarInitialized) {
              console.log('Usuário Firebase autenticado, mas cliente Google Calendar não inicializado.');
           } else if (user && googleCalendarInitialized && !googleCalendarSignedIn) {
              console.log('Usuário Firebase autenticado e cliente Google Calendar inicializado, mas usuário não conectado ao Calendar.');
           }
-
-
-        } else {
-          // Limpar estados se não houver userData (novo usuário ou dados não carregados)
-          setTasks([]);
-          setBoards([]);
-          setHabits([]);
-          setHabitSessions([]);
-          setTodos([]);
-          setUserName(null);
-           console.log('Usuário Firebase não autenticado ou sem userData. Estados limpos.');
+        } catch (error) {
+          console.error('Erro ao carregar dados do Firestore:', error);
+          showToast("Erro", "Não foi possível carregar seus dados. Por favor, tente novamente.", "destructive");
         }
       } else {
-        // Limpar estados ao deslogar do Firebase
+        // Limpar estados ao deslogar
         setTasks([]);
         setBoards([]);
         setHabits([]);
         setHabitSessions([]);
         setTodos([]);
         setUserName(null);
-         console.log('Usuário Firebase deslogado. Estados limpos.');
-        // Opcional: deslogar do cliente Google Calendar também ao deslogar do Firebase
-         if (googleCalendarInitialized && googleCalendarSignedIn) {
-           try {
-              gapi.auth2.getAuthInstance().signOut();
-              console.log('Desconectado do Google Calendar ao deslogar do Firebase.');
-           } catch (e) {
-             console.error('Erro ao deslogar do Google Calendar ao deslogar do Firebase:', e);
-           }
-         }
+        
+        if (googleCalendarInitialized && googleCalendarSignedIn) {
+          try {
+            gapi.auth2.getAuthInstance().signOut();
+          } catch (e) {
+            console.error('Erro ao deslogar do Google Calendar:', e);
+          }
+        }
       }
       
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [googleCalendarInitialized, googleCalendarSignedIn, fetchCalendarEvents, firebaseAddTask, firebaseUpdateTask, firebaseDeleteTask, firebaseAddHabit, firebaseUpdateHabit, firebaseDeleteHabit, firebaseAddHabitSession, firebaseAddTodo, firebaseUpdateTodo, firebaseDeleteTodo, getUserData]); // Adicionar dependências necessárias, incluindo estados do Google Calendar e funções Firebase
+  }, [googleCalendarInitialized, googleCalendarSignedIn]);
 
   // Função para iniciar o login no Google Calendar
   const handleGoogleCalendarSignIn = async () => {
